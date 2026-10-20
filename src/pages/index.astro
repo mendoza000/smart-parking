@@ -1,16 +1,22 @@
 ---
----
+import Dashboard from '../components/Dashboard';
+import '../styles/global.css';
 
-<html lang="en">
-	<head>
-		<meta charset="utf-8" />
-		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-		<link rel="icon" href="/favicon.ico" />
-		<meta name="viewport" content="width=device-width" />
-		<meta name="generator" content={Astro.generator} />
-		<title>Astro</title>
-	</head>
-	<body>
-		<h1>Astro</h1>
-	</body>
+const demo = import.meta.env.PUBLIC_DEMO_MODE === 'true';
+const wsUrl = import.meta.env.PUBLIC_WS_URL || '';
+---
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0b111a" />
+    <meta name="description" content="Smart Parking: cuatro puestos, una maqueta conectada. Monitoreo de estacionamiento en tiempo real con Arduino." />
+    <title>Smart Parking — Monitoreo en tiempo real</title>
+  </head>
+  <body>
+    <Dashboard demo={demo} wsUrl={wsUrl} client:load />
+    <noscript><p style="padding:24px;color:#edf2f8;background:#121b27">Activa JavaScript para recibir los estados del Arduino y usar el modo simulación.</p></noscript>
+  </body>
 </html>
