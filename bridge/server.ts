@@ -7,6 +7,9 @@ import { parseArduinoMessage, type Snapshot } from '../src/lib/protocol.ts';
 try { loadEnvFile(); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
 
 type SerialLike = {
+  readonly isOpen?: boolean;
+  readonly opening?: boolean;
+  readonly closing?: boolean;
   on(event: string, listener: (...args: any[]) => void): unknown;
   write(data: string, callback?: (error?: Error | null) => void): unknown;
   close(callback?: (error?: Error | null) => void): unknown;
@@ -42,6 +45,9 @@ export async function createBridge(options: BridgeOptions = {}) {
   let buffer = '';
   let discardingLine = false;
   let generation = 0;
+  let closeRetryTimer: NodeJS.Timeout | null = null;
+  let quarantined: SerialLike | null = null;
+  let shutdownError: Error | null = null;
   const broadcast = () => {
     const message = JSON.stringify(snapshot);
     for (const client of server.clients) if (client.readyState === WebSocket.OPEN) client.send(message);
@@ -67,14 +73,14 @@ export async function createBridge(options: BridgeOptions = {}) {
     buffer = '';
     discardingLine = false;
     current.on('open', () => {
-      if (serial !== current || closed) return;
+      if (serial !== current || closed || quarantined === current) return;
       updateConnection(true);
       current.write('SYNC\n', (error) => { if (error) handleError(current, token, error); });
       if (bootTimer) clearTimeout(bootTimer);
       bootTimer = setTimeout(() => { bootTimer = null; if (serial === current && !closed) current.write('SYNC\n', (error) => { if (error) handleError(current, token, error); }); }, bootGraceMs);
     });
     current.on('data', (chunk: Buffer | string) => {
-      if (serial !== current || closed) return;
+      if (serial !== current || closed || quarantined === current) return;
       let remaining = chunk.toString();
       while (remaining.length) {
         if (discardingLine) {
@@ -111,27 +117,47 @@ export async function createBridge(options: BridgeOptions = {}) {
   };
   const handleClose = (current: SerialLike, token: number) => {
     if (serial !== current || closed || token !== generation) return;
+    release(current, token);
+  };
+  const release = (current: SerialLike, token: number) => {
+    if (serial !== current || token !== generation) return;
     serial = null;
+    quarantined = null;
+    if (closeRetryTimer) { clearTimeout(closeRetryTimer); closeRetryTimer = null; }
     if (bootTimer) { clearTimeout(bootTimer); bootTimer = null; }
     buffer = '';
     discardingLine = false;
     updateConnection(false);
-    scheduleReconnect();
+    if (!closed) scheduleReconnect();
+  };
+  const attemptClose = (current: SerialLike, token: number) => {
+    if (serial !== current || token !== generation || closed) return;
+    try {
+      current.close((error) => {
+        if (serial !== current || token !== generation) return;
+        if (error) {
+          console.error(`Serial close error for ${serialPath}: ${error.message}`);
+          if (/port is not open/i.test(error.message) && current.isOpen === false && !current.opening && !current.closing) { release(current, token); return; }
+          closeRetryTimer = setTimeout(() => { closeRetryTimer = null; attemptClose(current, token); }, reconnectMs);
+          return;
+        }
+        release(current, token);
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      console.error(`Serial close error for ${serialPath}: ${detail}`);
+      closeRetryTimer = setTimeout(() => { closeRetryTimer = null; attemptClose(current, token); }, reconnectMs);
+    }
   };
   const handleError = (current: SerialLike, token: number, error: Error) => {
-    if (serial !== current || closed || token !== generation) return;
+    if (serial !== current || closed || token !== generation || quarantined === current) return;
     console.error(`Serial bridge error for ${serialPath}: ${error.message}`);
-    serial = null;
+    quarantined = current;
     if (bootTimer) { clearTimeout(bootTimer); bootTimer = null; }
     buffer = '';
     discardingLine = false;
     updateConnection(false);
-    try {
-      current.close(() => scheduleReconnect());
-    } catch (closeError) {
-      console.error(`Serial close error for ${serialPath}: ${closeError instanceof Error ? closeError.message : String(closeError)}`);
-      scheduleReconnect();
-    }
+    attemptClose(current, token);
   };
   server.on('connection', (client) => client.send(JSON.stringify(snapshot)));
   connect();
@@ -144,12 +170,28 @@ export async function createBridge(options: BridgeOptions = {}) {
       closed = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
       if (bootTimer) clearTimeout(bootTimer);
-      reconnectTimer = bootTimer = null;
+      if (closeRetryTimer) clearTimeout(closeRetryTimer);
+      reconnectTimer = bootTimer = closeRetryTimer = null;
       const current = serial;
-      serial = null;
-      if (current) await new Promise<void>((resolve) => { try { current.close(() => resolve()); } catch { resolve(); } });
+      if (current) await new Promise<void>((resolve, reject) => {
+        try {
+          current.close((error) => {
+            if (error) {
+              shutdownError = error;
+              console.error(`Serial close error for ${serialPath}: ${error.message}`);
+              reject(error);
+            } else { serial = null; resolve(); }
+          });
+        } catch (error) {
+          const failure = error instanceof Error ? error : new Error(String(error));
+          shutdownError = failure;
+          console.error(`Serial close error for ${serialPath}: ${failure.message}`);
+          reject(failure);
+        }
+      }).catch((error) => { shutdownError ??= error instanceof Error ? error : new Error(String(error)); });
       for (const client of server.clients) client.terminate();
       await new Promise<void>((resolve) => server.close(() => resolve()));
+      if (shutdownError) throw shutdownError;
     },
   };
 }
@@ -157,7 +199,7 @@ export async function createBridge(options: BridgeOptions = {}) {
 async function main() {
   const bridge = await createBridge();
   console.log(`Smart Parking bridge listening on ws://${bridge.host}:${bridge.port}`);
-  const shutdown = () => { void bridge.close().then(() => process.exit(0)); };
+  const shutdown = () => { void bridge.close().then(() => process.exit(0), (error) => { console.error(`Bridge shutdown failed: ${error instanceof Error ? error.message : String(error)}`); process.exitCode = 1; }); };
   process.once('SIGINT', shutdown);
   process.once('SIGTERM', shutdown);
 }

@@ -8,10 +8,15 @@ class FakeSerial {
   listeners = new Map<string, Array<(...args: any[]) => void>>();
   writes: string[] = [];
   closed = false;
+  closeError: Error | null = null;
+  failCloseCount = 0;
   constructor(public options: { path: string; baudRate: number }) { FakeSerial.instances.push(this); }
   on(name: string, callback: (...args: any[]) => void) { this.listeners.set(name, [...(this.listeners.get(name) ?? []), callback]); return this; }
   write(data: string, callback?: (error?: Error | null) => void) { this.writes.push(data); callback?.(); return true; }
-  close(callback?: (error?: Error | null) => void) { this.closed = true; callback?.(); }
+  close(callback?: (error?: Error | null) => void) {
+    if (this.failCloseCount > 0) { this.failCloseCount--; this.closeError = new Error('close failed'); callback?.(this.closeError); return; }
+    this.closed = true; this.closeError = null; callback?.();
+  }
   emit(name: string, ...args: any[]) { for (const listener of this.listeners.get(name) ?? []) listener(...args); }
   open() { this.emit('open'); }
   data(data: string) { this.emit('data', Buffer.from(data)); }
@@ -172,6 +177,51 @@ test('retries synchronous constructor failure with explicit path diagnostic and 
     console.error = originalError;
     await f?.cleanup();
   }
+});
+
+test('retains a descriptor after close callback failure and resumes only after it closes', async (t) => {
+  const f = await fixture(); ownCleanup(t, f);
+  const errors: string[] = [];
+  const originalError = console.error;
+  console.error = (...args: unknown[]) => errors.push(args.join(' '));
+  try {
+    const inbox = await f.client();
+    await inbox.waitFor((m) => m.type === 'snapshot');
+    const old = f.serials()[0]!;
+    old.open(); old.data(`${payload}\n`);
+    const before = await inbox.waitFor((m) => m.spots !== null);
+    old.failCloseCount = 1;
+    const from = inbox.messages.length;
+    old.emit('error', new Error('serial lost'));
+    const offline = await inbox.waitFor((m) => m.connected === false, from);
+    assert.deepEqual(offline.spots, before.spots);
+    assert.equal(offline.updatedAt, before.updatedAt);
+    old.data('{"spots":[false,false,false,false]}\n');
+    assert.deepEqual(f.bridge.snapshot.spots, before.spots);
+    assert.equal(f.serials().length, 1);
+    assert.ok(errors.some((line) => line.includes('/dev/fake') && line.includes('close failed')));
+
+    const deadline = Date.now() + 1000;
+    while (f.serials().length < 2 && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.equal(old.closed, true);
+    assert.equal(f.serials().length, 2);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    assert.equal(f.serials().length, 2);
+    f.serials()[1]!.open();
+    assert.equal((await inbox.waitFor((m) => m.connected)).connected, true);
+    await f.bridge.close();
+  } finally { console.error = originalError; await f.cleanup(); }
+});
+
+test('reports serial close failure during shutdown', async () => {
+  const f = await fixture();
+  const originalError = console.error;
+  console.error = () => {};
+  try {
+    const old = f.serials()[0]!;
+    old.failCloseCount = 1;
+    await assert.rejects(() => f.bridge.close(), /close failed/);
+  } finally { console.error = originalError; await f.cleanup(); }
 });
 
 test('validates configuration before constructing serial transport', async () => {
