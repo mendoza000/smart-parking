@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "astro dev",
     "dev:bridge": "tsx bridge/server.ts",
+    "dev:all": "node scripts/dev-all.mjs",
     "build": "astro build",
     "check": "astro check",
     "test": "node --import tsx --test",
