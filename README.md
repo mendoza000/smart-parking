@@ -6,6 +6,7 @@ Panel IoT para visualizar cuatro puestos de estacionamiento con un dashboard Ast
 
 - Node.js `>=22.22.0` y npm.
 - Un navegador moderno.
+- Para ejecutar los tests del firmware: `g++` disponible en PATH (se compila un arnés local, no se carga nada a la placa).
 - Para el modo hardware: Arduino conectado por USB y acceso normal del usuario al dispositivo serial.
 
 ## Instalación
@@ -60,3 +61,11 @@ No cambies permisos del dispositivo automáticamente. Si el usuario actual no ti
 ## Red local y seguridad
 
 Astro en `npm run dev:all` escucha en todas las interfaces para que otros dispositivos de la LAN puedan cargar la interfaz. El bridge escucha por defecto solo en `127.0.0.1`; por ello `PUBLIC_WS_URL=ws://localhost:8080` funciona cuando el navegador y el bridge corren en el mismo equipo. Si un navegador de otro dispositivo debe conectarse directamente al bridge, establece `WS_HOST=0.0.0.0` y `PUBLIC_WS_URL=ws://<IP-del-equipo>:8080`. Limita ese acceso a una red de confianza: el WebSocket no tiene autenticación ni cifrado y no debe exponerse a Internet o redes no confiables.
+
+## Documentación
+
+- [Cableado, carga manual y cambio a FC-51](arduino/SmartParking/README.md).
+- [Contrato serial/WebSocket y reconexión](docs/bridge.md).
+- [Estados, simulación y actividad del dashboard](docs/dashboard.md).
+
+La compilación de producción queda en `dist/`; ejecútala con `npm run preview`. El bridge sigue siendo un proceso independiente. Para producir una versión de demostración usa `PUBLIC_DEMO_MODE=true npm run build`; para hardware usa `PUBLIC_DEMO_MODE=false npm run build`. Cambiar el modo no modifica firmware ni reescribe los estados físicos.
