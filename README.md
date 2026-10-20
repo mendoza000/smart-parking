@@ -7,6 +7,7 @@ Panel IoT para visualizar cuatro puestos de estacionamiento con un dashboard Ast
 - Node.js `>=22.22.0` y npm.
 - Un navegador moderno.
 - Para ejecutar los tests del firmware: `g++` disponible en PATH (se compila un arnés local, no se carga nada a la placa).
+- Para el test de latencia serial virtual en Linux: Python 3 (usa un PTY local; no accede al Arduino).
 - Para el modo hardware: Arduino conectado por USB y acceso normal del usuario al dispositivo serial.
 
 ## Instalación
@@ -39,7 +40,7 @@ npm run dev:bridge   # Bridge serial y WebSocket en WS_HOST:WS_PORT
 npm run dev:all      # Astro (0.0.0.0:4321) y bridge en primer plano
 ```
 
-`npm run dev:all` detiene ambos procesos si uno termina y reenvía SIGINT/SIGTERM al cerrar. El bridge puede arrancar sin Arduino presente y reintenta la conexión serial.
+`npm run dev:all` detiene ambos procesos si uno termina y reenvía SIGINT/SIGTERM al cerrar. El bridge puede arrancar sin Arduino presente y reintenta la conexión serial. En Unix con Node.js 26.4 o posterior, aplica además una compatibilidad acotada para el bloqueo de continuaciones nativas de serialport (documentado en [bindings-cpp PR #239](https://github.com/serialport/bindings-cpp/pull/239)); tras actualizar el código, reinicia únicamente el bridge. No requiere cambios en el navegador ni en el firmware.
 
 Comprobaciones y build:
 

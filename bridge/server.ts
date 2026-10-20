@@ -1,6 +1,6 @@
 import { pathToFileURL } from 'node:url';
 import { loadEnvFile } from 'node:process';
-import { SerialPort } from 'serialport';
+import { CompatibleSerialPort } from './serial-port.ts';
 import { WebSocketServer, WebSocket } from 'ws';
 import { parseArduinoMessage, type Snapshot } from '../src/lib/protocol.ts';
 
@@ -24,7 +24,7 @@ function integer(value: unknown, name: string, minimum: number, maximum: number)
 }
 
 export async function createBridge(options: BridgeOptions = {}) {
-  const Serial = options.SerialPort ?? SerialPort as unknown as SerialConstructor;
+  const Serial = options.SerialPort ?? CompatibleSerialPort as unknown as SerialConstructor;
   const serialPath = options.serialPath ?? process.env.ARDUINO_PORT;
   if (!serialPath?.trim()) throw new Error('ARDUINO_PORT is required');
   const baudRate = integer(options.baudRate ?? process.env.ARDUINO_BAUD_RATE ?? 9600, 'ARDUINO_BAUD_RATE', 1, 4_000_000);
