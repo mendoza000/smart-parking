@@ -138,7 +138,15 @@ h2 { font-size: 14px; font-weight: 550; letter-spacing: -.25px; margin: 0; }
 .access-lane { border-left: 1px solid #617181; border-right: 1px solid #617181; display: flex; flex-direction: column; align-items: center; color: #c6d2dd; position: relative; padding-top: 21px; gap: 7px; }
 .access-lane > span { font-size: 8px; letter-spacing: 1.7px; }
 .entry-arrow { transform: rotate(180deg); color: var(--green); }
-.gate-arm { position: absolute; top: 0; height: 5px; left: -2px; width: 79%; border: 1px solid #daa8a8; background: repeating-linear-gradient(90deg,#d7888c 0 10px,#e3e7eb 10px 20px); border-radius: 2px; }
+.gate-arm { position: absolute; top: 0; height: 5px; left: -2px; width: 79%; border: 1px solid #daa8a8; background: repeating-linear-gradient(90deg,#d7888c 0 10px,#e3e7eb 10px 20px); border-radius: 2px; transform-origin: 3px 50%; transform: rotate(0deg); transition: transform 240ms cubic-bezier(.77,0,.175,1); }
+.gate-arm.gate-open { transform: rotate(-72deg); }
+.entry-gate-controls { padding: 4px 20px 14px; }
+.entry-gate-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+.entry-gate-actions button { min-height: 44px; padding: 9px 11px; border: 1px solid #3e6855; border-radius: 7px; color: #b9f0d6; background: #19372b; font-size: 11px; font-weight: 550; }
+.entry-gate-actions button + button { color: #c6d2dd; border-color: #405066; background: #202c3a; }
+.entry-gate-actions button:disabled { opacity: .52; color: #a4b1c2; border-color: #364252; background: #1b2531; }
+.entry-gate-controls p { margin: 9px 0 0; min-height: 30px; color: #aebbd0; font-size: 10px; line-height: 1.55; }
+.entry-gate-controls p[role=alert] { color: #ffbec2; }
 .gate-arm::before { content: ''; position: absolute; width: 10px; height: 15px; left: -3px; top: -6px; background: #677987; border: 2px solid #a4b1c1; border-radius: 2px; }
 .map-island { display: flex; position: relative; align-items: center; flex-direction: column; justify-content: center; gap: 6px; border: 1px solid #3a4c5c; border-bottom: 0; border-radius: 8px 8px 0 0; background: #1e3034; color: #8daea6; }
 .map-island > span { font-size: 8px; }
@@ -195,5 +203,6 @@ footer { display: flex; justify-content: space-between; padding: 22px 0 23px; ga
 }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
+  .gate-arm { transition: none; }
   *, *::before, *::after { transition: none !important; animation: none !important; }
 }

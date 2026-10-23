@@ -26,6 +26,8 @@ ARDUINO_PORT=/dev/ttyUSB0
 ARDUINO_BAUD_RATE=9600
 WS_PORT=8080
 WS_HOST=127.0.0.1
+WS_ALLOWED_ORIGINS=http://localhost:4321,http://127.0.0.1:4321
+GATE_ACK_TIMEOUT_MS=4000
 PUBLIC_WS_URL=ws://localhost:8080
 PUBLIC_DEMO_MODE=false
 ```
@@ -66,7 +68,8 @@ Astro en `npm run dev:all` escucha en todas las interfaces para que otros dispos
 ## Documentación
 
 - [Cableado, carga manual y cambio a FC-51](arduino/SmartParking/README.md).
-- [Contrato serial/WebSocket y reconexión](docs/bridge.md).
+- [Contrato serial/WebSocket, comandos de barrera y reconexión](docs/bridge.md).
+- [Prueba manual de barrera](docs/entry-gate-testing.md) (firmware cargado manualmente; no se carga desde el bridge).
 - [Estados, simulación y actividad del dashboard](docs/dashboard.md).
 
 La compilación de producción queda en `dist/`; ejecútala con `npm run preview`. El bridge sigue siendo un proceso independiente. Para producir una versión de demostración usa `PUBLIC_DEMO_MODE=true npm run build`; para hardware usa `PUBLIC_DEMO_MODE=false npm run build`. Cambiar el modo no modifica firmware ni reescribe los estados físicos.

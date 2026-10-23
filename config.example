@@ -5,6 +5,10 @@ ARDUINO_BAUD_RATE=9600
 # Local-only bridge by default. Use 0.0.0.0 only on a trusted LAN.
 WS_HOST=127.0.0.1
 WS_PORT=8080
+# Exact browser origins allowed to issue gate commands (not authentication).
+WS_ALLOWED_ORIGINS=http://localhost:4321,http://127.0.0.1:4321
+# Reject a gate request if Arduino does not ACK within this deadline.
+GATE_ACK_TIMEOUT_MS=4000
 
 # Values exposed to the browser. Restart Astro after changing them.
 # For LAN clients, replace localhost with the bridge computer's LAN IP.

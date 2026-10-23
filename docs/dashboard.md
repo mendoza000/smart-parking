@@ -5,7 +5,8 @@
 - Tras desconexión se conserva la última lectura con una indicación explícita de que no está en vivo.
 - La primera lectura establece una referencia, no inventa eventos de ocupación anteriores. Los cambios posteriores generan eventos; repetir el mismo estado no los duplica.
 - La actividad conserva los últimos 30 eventos de esta sesión de navegador; no hay base de datos ni historial persistente.
-- Las barreras muestran `Demo` mientras no lleguen estados reales. El firmware actual no controla servos.
+- La barrera de entrada muestra únicamente el estado `gate` confirmado por Arduino; un resultado de comando por sí solo no mueve la representación. Abrir requiere puestos disponibles; cerrar sigue permitido aunque el estacionamiento esté lleno. Los controles se deshabilitan en demo, sin conexión, sin sincronización o con un comando pendiente.
+- El firmware confirma el objetivo de software tras el movimiento programado. El servo SG90 no tiene sensor de posición: esa confirmación no prueba que la barrera física haya alcanzado el ángulo ni detecta obstrucciones. No hay cierre automático; el cierre es manual.
 - Cambiar variables públicas exige reiniciar Astro y, para producción, reconstruir el sitio.
 
-`tests/dashboard.test.ts` comprueba aislamiento, transiciones, retención y límites. `tests/browser-check.mjs` es una función para `playwright-cli run-code --filename=tests/browser-check.mjs`, no un script de Node autónomo. Requiere un build de simulación servido en `127.0.0.1:4321` y una sesión abierta de Playwright; comprueba interacción y capturas responsive.
+`tests/dashboard.test.ts` comprueba aislamiento, transiciones, retención y límites. `tests/browser-check.mjs` y `tests/entry-gate-browser.mjs` son funciones para `playwright-cli run-code --filename=...`, no scripts autónomos de Node. Requiere un build de simulación servido en `127.0.0.1:4321` y una sesión abierta de Playwright; comprueba interacción y capturas responsive.

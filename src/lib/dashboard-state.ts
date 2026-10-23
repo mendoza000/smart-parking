@@ -1,4 +1,4 @@
-import type { Snapshot, Spots } from './protocol';
+import type { GateAction, GateResult, Snapshot, Spots } from './protocol';
 
 export interface ActivityEvent {
   id: number;
@@ -13,12 +13,17 @@ export interface DashboardState {
   connected: boolean;
   updatedAt: string | null;
   barriers: Snapshot['barriers'];
+  gate: Snapshot['gate'];
+  gateReady: boolean;
+  gatePending: GateAction | null;
+  gateRequest: { requestId: string; action: GateAction } | null;
+  gateError: string | null;
   events: ActivityEvent[];
   sequence: number;
 }
 
 export function createDashboard(demo: boolean): DashboardState {
-  return { demo, spots: demo ? [false, false, false, false] : null, connected: false, updatedAt: null, barriers: null, events: [], sequence: 0 };
+  return { demo, spots: demo ? [false, false, false, false] : null, connected: false, updatedAt: null, barriers: null, gate: null, gateReady: false, gatePending: null, gateRequest: null, gateError: null, events: [], sequence: 0 };
 }
 
 function addEvent(state: DashboardState, message: string, kind: ActivityEvent['kind'], time: string): DashboardState {
@@ -48,9 +53,26 @@ export function toggleDemoSpot(state: DashboardState, index: number, time = new 
 export function receiveSnapshot(state: DashboardState, snapshot: Snapshot): DashboardState {
   if (state.demo) return state;
   const time = new Date().toISOString();
-  let next = snapshot.spots ? transition(state, snapshot.spots, snapshot.updatedAt ?? time) : state;
+  let next = snapshot.spots ? transition(state, snapshot.spots, snapshot.updatedAt ?? time) : { ...state, spots: null };
   if (state.connected !== snapshot.connected) {
     next = addEvent(next, snapshot.connected ? 'Arduino conectado' : 'Arduino desconectado', 'connection', time);
   }
-  return { ...next, connected: snapshot.connected, updatedAt: snapshot.updatedAt, barriers: snapshot.barriers };
+  if (snapshot.gate !== undefined && snapshot.gate !== null && next.gate !== snapshot.gate && next.gate !== null) {
+    next = addEvent(next, `Barrera de entrada ${snapshot.gate === 'open' ? 'abierta' : 'cerrada'}`, snapshot.gate === 'open' ? 'occupied' : 'free', time);
+  }
+  return { ...next, connected: snapshot.connected, updatedAt: snapshot.updatedAt, barriers: snapshot.barriers, gate: snapshot.gate === undefined || snapshot.gate === null ? state.gate : snapshot.gate, gateReady: snapshot.gateReady === true, gatePending: snapshot.gatePending ?? null };
+}
+
+export function requestGate(state: DashboardState, requestId: string, action: GateAction): DashboardState {
+  if (state.demo || !state.gateReady || state.gatePending || state.gateRequest || (action === 'open' && state.spots?.every(Boolean))) return state;
+  return { ...state, gateRequest: { requestId, action }, gateError: null };
+}
+
+export function receiveGateResult(state: DashboardState, result: GateResult): DashboardState {
+  if (!state.gateRequest || state.gateRequest.requestId !== result.requestId) return state;
+  return { ...state, gateRequest: null, gateError: result.status === 'rejected' ? result.error ?? 'FIRMWARE_REJECTED' : null };
+}
+
+export function clearGateRequest(state: DashboardState): DashboardState {
+  return state.gateRequest ? { ...state, gateRequest: null } : state;
 }

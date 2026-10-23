@@ -1,8 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Activity, ArrowDown, ArrowDownLeft, ArrowRight, ArrowUpRight, Cable, ChevronRight, CircleParking, Clock3, Cpu, FlaskConical, LayoutDashboard, Radio, ShieldCheck, SquareParking, Unplug, Wifi, WifiOff } from 'lucide-react';
 import { createDashboard, receiveSnapshot, toggleDemoSpot } from '../lib/dashboard-state';
-import { parseSnapshot } from '../lib/protocol';
-import type { BarrierState } from '../lib/protocol';
+import { parseGateResult, parseSnapshot } from '../lib/protocol';
+import type { BarrierState, GateAction, GateState } from '../lib/protocol';
+import EntryGateControls from './EntryGateControls';
+import { clearGateRequest, receiveGateResult, requestGate } from '../lib/dashboard-state';
+import { createGateCommand, newGateRequestId } from '../lib/gate-client';
 
 interface Props { demo: boolean; wsUrl: string }
 const timeLabel = (value: string) => new Date(value).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -11,10 +14,12 @@ function Vehicle() {
   return <div className="vehicle" aria-hidden="true"><span className="car-windshield" /><span className="car-roof" /><span className="car-rear" /><i className="wheel w1" /><i className="wheel w2" /><i className="wheel w3" /><i className="wheel w4" /><i className="light l1" /><i className="light l2" /><i className="light l3" /><i className="light l4" /></div>;
 }
 
-function Barrier({ direction, state }: { direction: 'entry' | 'exit'; state: BarrierState | undefined }) {
+function Barrier({ direction, state, gate }: { direction: 'entry' | 'exit'; state: BarrierState | undefined; gate?: GateState | null }) {
   const entry = direction === 'entry';
-  const real = state !== undefined && state !== 'unknown';
-  return <div className="barrier-row"><div className="barrier-icon">{entry ? <ArrowDownLeft size={20} /> : <ArrowUpRight size={20} />}</div><div className="barrier-copy"><strong>Barrera de {entry ? 'entrada' : 'salida'}</strong><span>{real ? 'Estado recibido de Arduino' : 'Servo SG90 · sin conectar'}</span></div><span className={`barrier-state ${real ? 'real' : ''}`}>{real ? state === 'open' ? 'Abierta' : 'Cerrada' : 'Demo'}</span></div>;
+  const confirmed = entry ? gate : undefined;
+  const real = entry ? confirmed !== undefined && confirmed !== null : state !== undefined && state !== 'unknown';
+  const value = entry ? confirmed : state;
+  return <div className="barrier-row"><div className="barrier-icon">{entry ? <ArrowDownLeft size={20} /> : <ArrowUpRight size={20} />}</div><div className="barrier-copy"><strong>Barrera de {entry ? 'entrada' : 'salida'}</strong><span>{entry ? real ? 'Objetivo confirmado por Arduino' : 'Estado sin confirmar' : 'Demostración de salida · sin control'}</span></div><span className={`barrier-state ${real ? 'real' : ''}`}>{real ? value === 'open' ? 'Abierta' : 'Cerrada' : 'Desconocida'}</span></div>;
 }
 
 export default function Dashboard({ demo, wsUrl }: Props) {
@@ -22,6 +27,10 @@ export default function Dashboard({ demo, wsUrl }: Props) {
   const [socketStatus, setSocketStatus] = useState<'connecting' | 'online' | 'offline'>(demo ? 'offline' : 'connecting');
   const [error, setError] = useState('');
   const [clock, setClock] = useState('');
+  const socketRef = useRef<WebSocket | null>(null);
+  const stateRef = useRef(state);
+  const localRequestRef = useRef<{ requestId: string; action: GateAction } | null>(null);
+  useEffect(() => { stateRef.current = state; }, [state]);
   useEffect(() => {
     const update = () => setClock(new Date().toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' }));
     update();
@@ -41,13 +50,16 @@ export default function Dashboard({ demo, wsUrl }: Props) {
       try {
         const url = wsUrl || `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.hostname}:8080`;
         socket = new WebSocket(url);
+        socketRef.current = socket;
         watchdog = window.setTimeout(() => socket?.close(), 8000);
-        socket.onopen = () => { window.clearTimeout(watchdog); attempts = 0; setSocketStatus('online'); setError(''); };
+        socket.onopen = () => { window.clearTimeout(watchdog); attempts = 0; setSocketStatus('online'); setState(previous => clearGateRequest(previous)); };
         socket.onmessage = (event: MessageEvent) => {
           try {
-            const snapshot = parseSnapshot(JSON.parse(String(event.data)));
+            const message = JSON.parse(String(event.data));
+            const result = parseGateResult(message);
+            if (result) { if (localRequestRef.current?.requestId === result.requestId) localRequestRef.current = null; setState(previous => receiveGateResult(previous, result)); return; }
+            const snapshot = parseSnapshot(message);
             if (!snapshot) { setError('Mensaje no válido del bridge. Se conserva la última lectura.'); return; }
-            setError('');
             setState(previous => receiveSnapshot(previous, snapshot));
           } catch { setError('No se pudo interpretar el mensaje del bridge.'); }
         };
@@ -56,6 +68,8 @@ export default function Dashboard({ demo, wsUrl }: Props) {
           window.clearTimeout(watchdog);
           if (disposed) return;
           setSocketStatus('offline');
+          localRequestRef.current = null;
+          setState(previous => ({ ...clearGateRequest(previous), gateReady: false }));
           retry = window.setTimeout(connect, Math.min(1000 * 2 ** attempts++, 10000));
         };
       } catch {
@@ -64,7 +78,7 @@ export default function Dashboard({ demo, wsUrl }: Props) {
       }
     };
     connect();
-    return () => { disposed = true; window.clearTimeout(retry); window.clearTimeout(watchdog); if (socket) { socket.onclose = null; socket.onerror = null; socket.onmessage = null; socket.onopen = null; socket.close(); } };
+    return () => { disposed = true; window.clearTimeout(retry); window.clearTimeout(watchdog); if (socketRef.current === socket) socketRef.current = null; if (socket) { socket.onclose = null; socket.onerror = null; socket.onmessage = null; socket.onopen = null; socket.close(); } };
   }, [demo, wsUrl]);
 
   const occupied = state.spots?.filter(Boolean).length ?? null;
@@ -73,6 +87,28 @@ export default function Dashboard({ demo, wsUrl }: Props) {
   const stale = !demo && !live && state.spots !== null;
   const connectionLabel = demo ? 'Simulación activa' : live ? 'Arduino conectado' : socketStatus === 'online' ? 'Arduino desconectado' : socketStatus === 'connecting' ? 'Conectando al bridge' : 'Bridge desconectado';
   const changeSpot = (index: number) => setState(previous => toggleDemoSpot(previous, index));
+  const sendGateCommand = (action: GateAction) => {
+    const current = stateRef.current;
+    const socket = socketRef.current;
+    if (demo || !socket || socket.readyState !== WebSocket.OPEN || !current.connected || !current.gateReady || current.gate == null || current.gatePending || localRequestRef.current || (action === 'open' && !current.spots?.some(occupied => !occupied))) return;
+    const requestId = newGateRequestId();
+    const command = createGateCommand(action, requestId);
+    if (!command) return;
+    localRequestRef.current = { requestId, action };
+    setState(previous => requestGate(previous, requestId, action));
+    try { socket.send(JSON.stringify(command)); }
+    catch { localRequestRef.current = null; setState(previous => ({ ...clearGateRequest(previous), gateError: 'SERIAL_WRITE_FAILED' })); }
+  };
+  useEffect(() => {
+    if (!state.gateRequest) return;
+    const timer = window.setTimeout(() => {
+      if (localRequestRef.current?.requestId === state.gateRequest?.requestId) {
+        localRequestRef.current = null;
+        setState(previous => ({ ...clearGateRequest(previous), gateError: 'ACK_TIMEOUT' }));
+      }
+    }, 5000);
+    return () => window.clearTimeout(timer);
+  }, [state.gateRequest?.requestId]);
 
   return <div className="app-shell">
     <aside className="rail" aria-label="Navegación principal">
@@ -104,13 +140,13 @@ export default function Dashboard({ demo, wsUrl }: Props) {
                 return <button key={index} className={`parking-bay ${known ? busy ? 'is-occupied' : 'is-free' : 'is-unknown'}`} disabled={!demo} onClick={() => changeSpot(index)} aria-label={`${label}: ${known ? busy ? 'ocupado' : 'libre' : 'sin datos'}${demo ? '. Cambiar estado' : ''}`} aria-pressed={demo ? busy : undefined}><span className="bay-number">{String(index + 1).padStart(2, '0')}</span><div className="bay-vehicle"><Vehicle /><span className="empty-space">{known ? <CircleParking size={31} strokeWidth={1.1} /> : <Unplug size={25} strokeWidth={1.2} />}</span></div><span className="bay-status"><i />{known ? busy ? 'Ocupado' : 'Libre' : 'Sin datos'}</span><span className="bay-caption">PUESTO {String(index + 1).padStart(2, '0')}</span></button>;
               })}</div>
               <div className="internal-road"><ArrowRight className="road-arrow first" size={33} strokeWidth={1.3} /><span className="road-label">CIRCULACIÓN</span><ArrowRight className="road-arrow last" size={33} strokeWidth={1.3} /><span className="road-dash" /></div>
-              <div className="access-row"><div className="access-lane entry-lane"><div className="gate-arm" /><ArrowDown size={23} className="entry-arrow" /><span>ENTRADA</span></div><div className="map-island"><ShieldCheck size={20} /><span>Zona monitoreada</span><div className="island-stripes" /></div><div className="access-lane exit-lane"><div className="gate-arm" /><ArrowDown size={23} /><span>SALIDA</span></div></div>
+              <div className="access-row"><div className="access-lane entry-lane"><div className={`gate-arm ${state.gate === 'open' ? 'gate-open' : ''}`} data-testid="entry-gate-arm" aria-label={`Barrera de entrada ${state.gate === 'open' ? 'abierta' : state.gate === 'closed' ? 'cerrada' : 'sin confirmar'}`} /><ArrowDown size={23} className="entry-arrow" /><span>ENTRADA</span></div><div className="map-island"><ShieldCheck size={20} /><span>Zona monitoreada</span><div className="island-stripes" /></div><div className="access-lane exit-lane"><div className="gate-arm" /><ArrowDown size={23} /><span>SALIDA</span></div></div>
             </div>
             <div className="map-bottom"><span><span className={`status-dot ${demo ? 'amber' : live ? 'green' : 'muted'}`} />{demo ? 'Control manual habilitado' : live ? 'Sincronizado con Arduino Uno' : stale ? 'Lectura anterior · conexión interrumpida' : 'Esperando primera lectura'}</span><span>{state.updatedAt ? `Actualizado ${timeLabel(state.updatedAt)}` : 'Sin actualizaciones'}</span></div>
             <div className="spot-summary" aria-label="Estado individual">{[0, 1, 2, 3].map(index => <div key={index}><span className={`small-bay ${state.spots === null ? 'unknown' : state.spots[index] ? 'busy' : 'free'}`}>{String(index + 1).padStart(2, '0')}</span><span>Puesto {String(index + 1).padStart(2, '0')}<strong>{state.spots === null ? 'Sin datos' : state.spots[index] ? 'Ocupado' : 'Disponible'}</strong></span></div>)}</div>
           </section>
           <aside className="side-panels">
-            <section className="panel barriers-panel"><div className="panel-heading"><h2>Control de accesos</h2><span className="subtle-icon"><ShieldCheck size={17} /></span></div><Barrier direction="entry" state={state.barriers?.entry} /><Barrier direction="exit" state={state.barriers?.exit} /><div className="barrier-note"><FlaskConical size={14} /><span>Barreras ilustrativas. Preparadas para la próxima etapa del proyecto.</span></div></section>
+            <section className="panel barriers-panel"><div className="panel-heading"><h2>Control de accesos</h2><span className="subtle-icon"><ShieldCheck size={17} /></span></div><Barrier direction="entry" state={state.barriers?.entry} gate={state.gate} /><Barrier direction="exit" state={state.barriers?.exit} /><EntryGateControls demo={demo} available={available} socketOnline={socketStatus === 'online'} serialOnline={state.connected} gateReady={state.gateReady} gate={state.gate} serverPending={state.gatePending} localPending={state.gateRequest?.action ?? null} error={state.gateError} onAction={sendGateCommand} /><div className="barrier-note"><FlaskConical size={14} /><span>El SG90 confirma el objetivo de software tras el movimiento; no dispone de sensor de posición física.</span></div></section>
             <section className="panel activity-panel" id="activity"><div className="panel-heading"><h2>Actividad reciente</h2><span className="event-count">{state.events.length}</span></div><div className="activity-list" aria-live="polite" aria-relevant="additions">{state.events.length === 0 ? <div className="empty-activity"><Activity size={28} strokeWidth={1.2} /><strong>Todo empieza con un cambio</strong><p>{demo ? 'Pulsa un puesto del plano y observa la actividad aquí.' : 'Los cambios reales de conexión y ocupación aparecerán aquí.'}</p></div> : state.events.map(event => <div className="activity-event" key={event.id}><span className={`event-icon ${event.kind}`}>{event.kind === 'connection' ? <Cable size={14} /> : event.kind === 'occupied' ? <ArrowDownLeft size={14} /> : <ArrowUpRight size={14} />}</span><div><strong>{event.message}</strong><span>{demo ? 'Simulación manual' : 'Evento de hardware'}</span></div><time dateTime={event.time}>{timeLabel(event.time)}</time></div>)}</div><div className="activity-footer"><span className="status-dot muted" />Solo eventos de esta sesión · máximo 30</div></section>
           </aside>
         </div>

@@ -14,7 +14,7 @@ Make physical button input immediately legible as parking availability. Demonstr
 Omarchy Linux computer, USB Arduino Uno, D2–D5 pull-up buttons, 9600 baud. Local demonstration can operate without hardware.
 
 ## Capabilities and Constraints
-Four spaces, isolated simulation, retained hardware snapshot, explicit disconnection, reconnect, bounded activity log, future FC-51 inputs and SG90 barrier states. Never upload firmware or modify system permissions automatically.
+Four spaces, isolated simulation, retained hardware snapshot, explicit disconnection, reconnect, bounded activity log, FC-51 inputs and manually controlled SG90 entry-gate target. Gate controls require synchronized hardware, opening requires availability, and closing remains manual. Firmware confirmation reports a software target; the SG90 has no physical position feedback. Never upload firmware or modify system permissions automatically.
 
 ## Brand Commitments
 Smart Parking. Spanish controls confirmed by user. Dark navy/graphite, emerald availability, soft-red occupancy, modern Inter/Geist typography, overhead map as primary visual.
