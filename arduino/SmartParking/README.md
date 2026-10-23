@@ -1,13 +1,25 @@
-# Smart Parking firmware
+# Firmware Smart Parking
 
-## Conexión y carga
+## Conexión y carga manual
 
-Abre `SmartParking.ino` desde Arduino IDE, selecciona Arduino Uno y el puerto correspondiente y carga manualmente. Este proyecto no carga firmware automáticamente. Conecta un extremo de cada pulsador a D2, D3, D4 o D5 y el otro a GND; el firmware activa `INPUT_PULLUP`. No se necesitan resistencias externas.
+Abre `SmartParking.ino` en Arduino IDE, selecciona Arduino Uno y el puerto y realiza la carga manual. Instala la biblioteca **Servo** desde el Library Manager si Arduino IDE no la incluye. El proyecto no abre el puerto ni carga firmware automáticamente.
 
-El monitor serie usa 9600 baudios. Al arrancar envía el estado inicial; cada pulsación estable (flanco de bajada, después de 50 ms sin rebote) conmuta solo su plaza. Envía la línea exacta `SYNC` seguida de nueva línea para recibir el estado actual en JSON `{"spots":[false,false,false,false]}`; se ignoran los retornos de carro, comandos desconocidos y líneas que excedan el límite. El procesamiento serial está limitado a 16 bytes por iteración para no bloquear la lectura de entradas. La liberación no conmuta.
+Conecta los cuatro pulsadores entre D2–D5 y GND (`INPUT_PULLUP`, sin resistencias externas). Conecta el servo de señal a D9. Alimenta el SG90 con una fuente adecuada para su corriente de arranque y une el GND de esa fuente con el GND del Arduino; no dependas de la alimentación USB/placa si el servo demanda más corriente. Comprueba la tensión/polaridad antes de conectar.
 
-En Omarchy, identifica el dispositivo conectado con `ls /dev/ttyUSB* /dev/ttyACM*` o consulta `dmesg` justo después de conectar la placa. Cierra Arduino IDE/Monitor Serie antes de iniciar el bridge Node.js y viceversa: ambos no pueden abrir simultáneamente el mismo puerto.
+## Calibración y confirmación
 
-## Modo FC-51 futuro
+`GATE_CLOSED_ANGLE` y `GATE_OPEN_ANGLE` son configurables en compilación (por defecto 0° y 90°); `GATE_MIN_ANGLE`/`GATE_MAX_ANGLE` fijan los límites mecánicos permitidos (por defecto 0°–90°), y una configuración fuera de esos límites falla al compilar. Verifica cuidadosamente el recorrido mecánico sin forzar topes y ajusta los ángulos/límites para el montaje real. `GATE_SETTLE_MS` configura el tiempo no bloqueante de asentamiento (600 ms por defecto).
 
-Compila definiendo `INPUT_MODE` como `FC51_MODE` (o cambia el valor predeterminado en el bloque `#ifndef`) para usar entradas activas en LOW: detección continua significa ocupado y ausencia de detección significa libre. Mantiene los mismos cuatro pines y contrato JSON. Verifica los niveles eléctricos del módulo antes de conectarlo. No se implementan comandos de servos.
+El servo SG90 no aporta realimentación de posición. El ACK posterior al asentamiento confirma que el firmware aplicó el objetivo y esperó ese intervalo; **no confirma movimiento físico libre de obstáculos**.
+
+## Protocolo serie y controles
+
+Serie a 9600 baudios. Cada JSON incluye cuatro `spots` y la barrera confirmada. Al arrancar y al cambiar un botón se emite estado sin ACK. Envía `SYNC\n` para consultar; `GATE_OPEN\n` y `GATE_CLOSE\n` son comandos manuales, o añade un identificador seguro, por ejemplo `GATE_OPEN wire-1\n`. El ACK de movimiento incluye `ack` y, si se suministró, `requestId`. Errores como `PARKING_FULL`, `GATE_BUSY` y `INVALID_COMMAND` conservan estado/ocupación.
+
+La apertura solo se acepta si hay al menos una plaza libre; el cierre se permite aunque todas estén ocupadas. Los cuatro botones siguen conmutando de forma independiente tras 50 ms estables, también durante el movimiento. Se procesa como máximo 16 bytes de serie por iteración. La barrera no se cierra automáticamente al ocuparse una plaza ni por temporizador: el cierre es manual.
+
+Prueba desde el monitor serie (9600 baudios, envío de nueva línea): `SYNC`, `GATE_OPEN test-1`, espera al ACK de asentamiento, y `GATE_CLOSE test-2`. No mantengas simultáneamente abierto el monitor serie y el bridge: comparten el puerto.
+
+## Modo FC-51
+
+Define `INPUT_MODE` como `FC51_MODE` para entradas activas LOW: detección significa ocupado y ausencia significa libre. Verifica niveles eléctricos del módulo antes de conectarlo; el control de servo/serie permanece disponible.
